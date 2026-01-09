@@ -1,36 +1,46 @@
 import streamlit as st
 import requests
+import random
 import pandas as pd
 import plotly.express as px
 
-# === 0. 系統設定 (System Config) ===
+# === 0. 系統設定 ===
 st.set_page_config(page_title="Harem Command Center", page_icon="👑", layout="centered")
-
-# CSS 優化 (Dark Mode + 手機適配)
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117; color: #fafafa; }
-    .stButton>button { width: 100%; border-radius: 20px; font-weight: bold; }
-    div[data-testid="stMetricValue"] { font-size: 1.5rem; color: #ff4b4b; }
+    .stButton>button { width: 100%; border-radius: 20px; font-weight: bold; background: linear-gradient(90deg, #FF4081, #d81b60); color: white; border: none; }
+    div[data-testid="stMetricValue"] { color: #FF4081; }
     </style>
     """, unsafe_allow_html=True)
 
-# === 1. 安全閘門 (Security) ===
-# 密碼建議設為簡單好記的，例如 'boss'
-password_attempt = st.sidebar.text_input("🛡️ 識別確認 (Password)", type="password")
-if password_attempt != st.secrets["APP_PASSWORD"]:
-    st.warning("⚠️ 存取被拒：請輸入正確的指揮官密碼。")
-    st.stop()
+# === 1. 安全閘門 ===
+if "APP_PASSWORD" in st.secrets:
+    password_attempt = st.sidebar.text_input("🛡️ 識別確認 (Password)", type="password")
+    if password_attempt != st.secrets["APP_PASSWORD"]:
+        st.warning("⚠️ 存取被拒：請輸入正確的指揮官密碼。")
+        st.stop()
 
-# === 2. 核心邏輯 (Logic Core) ===
+# === 2. 戰術核心 (移植自您的 run.py) ===
 HEADERS = {
     "Authorization": f"Bearer {st.secrets['NOTION_TOKEN']}",
     "Content-Type": "application/json",
     "Notion-Version": "2022-06-28"
 }
 
+# 您的 Notion 欄位對照表 (從 run.py 搬過來的)
+COLUMN_CONFIG = {
+    "TIER": "顔抜きティア",   
+    "FORMATION": "Formation",
+    "TAGS": "タグ",          
+    "FETISH": "フェチ",
+    "BIRTHDAY": "生日狀態",   
+    "AGE": "Age",
+    "LAST_USED": "Lastヌキヌキ💦" 
+}
+
 def get_image_recursive(page_id):
-    """V13 核心：深入 Block 尋找圖片"""
+    """深入 Block 抓圖 (V13 核心)"""
     url = f"https://api.notion.com/v1/blocks/{page_id}/children"
     try:
         res = requests.get(url, headers=HEADERS)
@@ -43,71 +53,96 @@ def get_image_recursive(page_id):
     return "https://via.placeholder.com/400x300?text=No+Image+Found"
 
 def fetch_database(db_id):
-    """通用資料庫抓取"""
+    """抓取資料庫"""
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
-    res = requests.post(url, headers=HEADERS, json={"page_size": 100})
+    payload = {"page_size": 100} 
+    res = requests.post(url, headers=HEADERS, json=payload)
     return res.json().get('results', [])
 
-# === 3. 介面指揮塔 (UI Control) ===
+def extract_property(props, key_config):
+    """通用欄位解析器"""
+    prop = props.get(key_config)
+    if not prop: return "N/A"
+    
+    prop_type = prop['type']
+    if prop_type == 'select':
+        return prop['select']['name'] if prop['select'] else "N/A"
+    elif prop_type == 'multi_select':
+        return ", ".join([t['name'] for t in prop['multi_select']])
+    elif prop_type == 'number':
+        return str(prop['number'])
+    elif prop_type == 'date':
+        return prop['date']['start'] if prop['date'] else "N/A"
+    elif prop_type == 'formula':
+        f_type = prop['formula']['type']
+        if f_type == 'string': return prop['formula']['string'] or "N/A"
+        if f_type == 'number': return str(prop['formula']['number'])
+    
+    return "N/A"
+
+# === 3. 介面指揮塔 ===
 st.sidebar.success("✅ 權限解鎖：Boss 蒞臨")
 mode = st.sidebar.radio("切換戰術視角", ["⚔️ V13 戰略輪盤", "📊 V17 情報中心"])
 
-# --- V13 介面 ---
 if mode == "⚔️ V13 戰略輪盤":
     st.title("⚔️ V13 戰略輪盤")
-    st.caption("隨機召喚一名後宮成員進行檢閱...")
     
     if st.button("🎲 啟動召喚 (Summon)"):
-        with st.spinner('正在掃描資料庫與 Block...'):
+        with st.spinner('正在掃描資料庫...'):
             results = fetch_database(st.secrets["DB_GIRLS"])
             if results:
-                import random
                 target = random.choice(results)
-                
-                # 解析資料 (需根據您的 Notion 欄位微調)
                 props = target['properties']
-                # 假設您的標題欄位叫 "Name"
-                name_list = props.get('Name', {}).get('title', [])
-                name = name_list[0]['plain_text'] if name_list else "Unknown"
                 
-                # 深入抓圖
+                # 1. 智慧抓取名字 (無視欄位名稱，自動鎖定 Title)
+                name = "Unknown"
+                for key, val in props.items():
+                    if val["type"] == "title" and val["title"]:
+                        name = val["title"][0]["text"]["content"]
+                        break
+                
+                # 2. 抓取圖片
                 img_url = get_image_recursive(target['id'])
                 
-                # 顯示
+                # 3. 抓取屬性
+                tier = extract_property(props, COLUMN_CONFIG["TIER"])
+                fetish = extract_property(props, COLUMN_CONFIG["FETISH"])
+                age = extract_property(props, COLUMN_CONFIG["AGE"])
+                last_used = extract_property(props, COLUMN_CONFIG["LAST_USED"])
+
+                # 4. 顯示情報
                 st.header(f"👑 {name}")
                 st.image(img_url, use_column_width=True)
                 
-                # 顯示屬性 (範例)
-                status = props.get('Status', {}).get('select', {}).get('name', 'N/A')
-                st.info(f"當前狀態：{status}")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("階級", tier)
+                c2.metric("年齡", age)
+                c3.metric("上次", last_used)
+                
+                st.info(f"❤️ 屬性: {fetish}")
+                
             else:
-                st.error("資料庫讀取失敗或為空！")
+                st.error("資料庫抓取失敗，請檢查 Token 或 ID 是否正確。")
 
-# --- V17 介面 ---
 elif mode == "📊 V17 情報中心":
     st.title("📊 V17 戰略情報")
     if st.button("📡 刷新情報"):
-        with st.spinner('正在統計戰果...'):
+        with st.spinner('統計中...'):
             data = fetch_database(st.secrets["DB_GIRLS"])
-            total_count = len(data)
+            total = len(data)
             
-            # 簡單統計狀態 (範例)
-            status_list = []
+            # 統計階級
+            tiers = []
             for p in data:
-                s = p['properties'].get('Status', {}).get('select', {})
-                if s: status_list.append(s.get('name'))
+                t = extract_property(p['properties'], COLUMN_CONFIG["TIER"])
+                tiers.append(t)
             
-            df = pd.DataFrame(status_list, columns=["Status"])
-            status_counts = df["Status"].value_counts().reset_index()
-            status_counts.columns = ["Status", "Count"]
+            df = pd.DataFrame(tiers, columns=["Tier"])
+            counts = df["Tier"].value_counts().reset_index()
+            counts.columns = ["Tier", "Count"]
             
-            # 顯示 KPI
-            col1, col2 = st.columns(2)
-            col1.metric("總成員數", total_count)
-            col2.metric("活躍狀態", len(status_counts))
+            st.metric("總成員數", total)
             
-            # 顯示圖表
-            st.subheader("成員狀態分佈")
-            fig = px.pie(status_counts, values='Count', names='Status', hole=0.4)
-            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color="white")
-            st.plotly_chart(fig, use_container_width=True)
+            fig = px.pie(counts, values='Count', names='Tier', title='階級分佈', hole=0.4)
+            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", font_color="white")
+            st.plotly_chart(fig)
